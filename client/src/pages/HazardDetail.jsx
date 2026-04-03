@@ -1,1 +1,1 @@
-//HazardDetails-pages
+//hazard detail page
