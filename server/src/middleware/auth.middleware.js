@@ -60,7 +60,7 @@ const requireAuth = async (req, res, next) => {
   }
 };
 
-// ─── requireOfficial ──────────────────────────────────────────────────────────
+// ─── requireOfficial ───
 // Only allows officials through — must come AFTER requireAuth
 const requireOfficial = (req, res, next) => {
   if (!req.isOfficial && !req.user?.is_official) {
