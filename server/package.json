@@ -1,0 +1,36 @@
+{
+  "name": "roadrash-backend",
+  "version": "1.0.0",
+  "description": "RoadRash AI-first road hazard reporting backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "seed": "node scripts/seed.js",
+    "seed:destroy": "node scripts/seed.js --destroy",
+    "test:unit": "node tests/unit/priorityScore.test.js && node tests/unit/armoriq.test.js",
+    "test:integration": "node tests/integration/api.test.js",
+    "test": "npm run test:unit"
+  },
+  "dependencies": {
+    "@armoriq/sdk": "^0.2.9",
+    "axios": "^1.14.0",
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^1.41.3",
+    "cors": "^2.8.5",
+    "crypto": "^1.0.1",
+    "dotenv": "^16.6.1",
+    "exif-parser": "^0.1.12",
+    "express": "^4.22.1",
+    "express-rate-limit": "^7.1.4",
+    "express-validator": "^7.0.1",
+    "google-auth-library": "^9.2.0",
+    "helmet": "^7.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^7.6.3",
+    "multer": "^2.1.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
