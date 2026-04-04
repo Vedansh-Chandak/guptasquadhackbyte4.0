@@ -258,10 +258,10 @@ function HazardCard({ hazard, onUpdate }) {
                  </span>
              </div>
              <h3 className="text-lg font-bold text-[#e5e2e1] mb-2 uppercase line-clamp-1 group-hover:text-[#FF8C00] transition-colors leading-tight">
-               {localHazard.type || 'HAZARD'} DETECTED
+               {localHazard.description || 'HAZARD'} DETECTED
              </h3>
              <p className="text-[#e5e2e1]/60 text-xs leading-relaxed line-clamp-2 italic border-l border-[#FF8C00]/30 pl-3">
-               {localHazard.description}
+               {localHazard.type}
              </p>
           </div>
 
