@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { 
-  Camera, AlertTriangle, CheckCircle, X, ChevronDown, 
+  Camera, Shield, AlertTriangle, CheckCircle, X, ChevronDown, 
   Loader2, Info, ListFilter, Activity, XCircle, ArrowRight,
-  MapPinOff, BarChart2, MapPin, ShieldCheck
+  MapPinOff, BarChart2
 } from 'lucide-react';
 import api from '../api/axios';
 
@@ -16,6 +16,7 @@ const HAZARD_TYPES = [
   { id: 'other', label: 'OTHER HAZARD' }
 ];
 
+// ─── Inline alert banner shown on the form ────────────────────────────────────
 function AlertBanner({ type, title, message, onDismiss }) {
   const styles = {
     location: {
@@ -23,12 +24,6 @@ function AlertBanner({ type, title, message, onDismiss }) {
       bg: 'bg-yellow-500/10',
       icon: <MapPinOff size={20} className="text-yellow-400 shrink-0 mt-0.5" />,
       titleColor: 'text-yellow-400',
-    },
-    location_success: {
-      border: 'border-[#00B894]/60',
-      bg: 'bg-[#00B894]/10',
-      icon: <MapPin size={20} className="text-[#00B894] shrink-0 mt-0.5" />,
-      titleColor: 'text-[#00B894]',
     },
   };
   const s = styles[type] || styles.location;
@@ -50,32 +45,29 @@ function AlertBanner({ type, title, message, onDismiss }) {
 
 function Report() {
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const [image, setImage] = useState(null);
   const [imageUrl, setImageUrl] = useState(null);
   const [hazardType, setHazardType] = useState('');
-
-  // GPS — only used when photo is taken via in-app camera
-  const [browserGPS, setBrowserGPS] = useState(null);
-  const [gpsStatus, setGpsStatus] = useState('idle'); // 'idle' | 'fetching' | 'success' | 'error' | 'denied'
-  const [imageSource, setImageSource] = useState(null); // 'camera' | 'gallery'
-
-  // Location permission prompt modal (shown on mount)
-  const [showLocationPrompt, setShowLocationPrompt] = useState(false);
 
   // VERIFICATION FLOW STATES
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [activityLog, setActivityLog] = useState({
-    gemini: null, fileValidation: null, spamCheck: null, keywordCheck: null, finalStatus: null
+    gemini: null,
+    fileValidation: null,
+    spamCheck: null,
+    keywordCheck: null,
+    finalStatus: null
   });
 
-  const [inlineAlert, setInlineAlert] = useState(null);
+  // Inline alert (shown on form, not modal) — for NO_EXIF_GPS
+  const [inlineAlert, setInlineAlert] = useState(null); // { type, title, message }
 
   // MODAL STATES
   const [showModal, setShowModal] = useState(false);
-  const [modalStatus, setModalStatus] = useState(null);
-  const [rejectionDetail, setRejectionDetail] = useState(null);
+  const [modalStatus, setModalStatus] = useState(null); // 'approved' | 'rejected' | 'low_impact'
+  const [rejectionDetail, setRejectionDetail] = useState(null); // { finalScore, flags }
   const [countdown, setCountdown] = useState(5);
 
   // Camera states
@@ -85,96 +77,42 @@ function Report() {
   const [cameraError, setCameraError] = useState('');
 
   useEffect(() => {
-    if (!isAuthenticated) navigate('/login');
+    if (!isAuthenticated) {
+      navigate('/login');
+    }
   }, [isAuthenticated, navigate]);
 
-  // ─── Show location prompt on mount ──────────────────────────────────────────
-  useEffect(() => {
-    // Check if permission already granted — if so, fetch silently. Otherwise show prompt.
-    if (!navigator.geolocation) return;
-    if (navigator.permissions) {
-      navigator.permissions.query({ name: 'geolocation' }).then((result) => {
-        if (result.state === 'granted') {
-          fetchBrowserGPS(); // already allowed, grab it silently
-        } else if (result.state === 'prompt') {
-          setShowLocationPrompt(true); // show our custom prompt first
-        } else {
-          setGpsStatus('denied'); // previously denied
-        }
-      }).catch(() => {
-        setShowLocationPrompt(true); // can't query, show prompt anyway
-      });
-    } else {
-      setShowLocationPrompt(true); // fallback for browsers without Permissions API
-    }
-  }, []);
-
-  const fetchBrowserGPS = () => {
-    if (!navigator.geolocation) { setGpsStatus('error'); return; }
-    setGpsStatus('fetching');
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setBrowserGPS({ lat: pos.coords.latitude, long: pos.coords.longitude });
-        setGpsStatus('success');
-        setInlineAlert(null);
-      },
-      (err) => {
-        console.warn('GPS error:', err.message);
-        setGpsStatus(err.code === 1 ? 'denied' : 'error');
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
-    );
-  };
-
-  // User taps Allow in our custom prompt
-  const handleAllowLocation = () => {
-    setShowLocationPrompt(false);
-    fetchBrowserGPS(); // this triggers the real browser permission dialog
-  };
-
-  // User taps Skip
-  const handleSkipLocation = () => {
-    setShowLocationPrompt(false);
-    setGpsStatus('denied');
-  };
-
-  // ─── Image handlers ──────────────────────────────────────────────────────────
-  // Gallery upload — no GPS attached
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
       setImage(file);
       setImageUrl(URL.createObjectURL(file));
-      setImageSource('gallery');
       setActivityLog({ gemini: null, fileValidation: null, spamCheck: null, keywordCheck: null, finalStatus: null });
       setCurrentStep(0);
-      setInlineAlert(null);
+      setInlineAlert(null); // clear any previous alert on new image
     }
   };
 
   const handleCaptureClick = () => setShowCaptureOptions(true);
 
-  // In-app camera — GPS will be attached
   const handleCameraCapture = async () => {
     setShowCaptureOptions(false);
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setCameraError('Camera not supported. Please use upload instead.');
+      setCameraError('Camera is not supported on this device/browser. Please use the upload option instead.');
       return;
     }
     try {
       setCameraError('');
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: { ideal: 'environment' } } 
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       setCameraStream(stream);
       setShowCamera(true);
     } catch (error) {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
         setCameraStream(stream);
         setShowCamera(true);
-      } catch {
-        setCameraError('Unable to access camera. Please use the upload option.');
+      } catch (fallbackError) {
+        setCameraError('Unable to access camera. Please check permissions or use the upload option.');
       }
     }
   };
@@ -191,7 +129,6 @@ function Report() {
       const file = new File([blob], 'camera-photo.jpg', { type: 'image/jpeg' });
       setImage(file);
       setImageUrl(URL.createObjectURL(file));
-      setImageSource('camera'); // mark as camera — GPS will be sent
       setActivityLog({ gemini: null, fileValidation: null, spamCheck: null, keywordCheck: null, finalStatus: null });
       setCurrentStep(0);
       setInlineAlert(null);
@@ -200,12 +137,17 @@ function Report() {
   };
 
   const handleCloseCamera = () => {
-    if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); setCameraStream(null); }
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
     setShowCamera(false);
   };
 
   useEffect(() => {
-    return () => { if (cameraStream) cameraStream.getTracks().forEach(t => t.stop()); };
+    return () => {
+      if (cameraStream) cameraStream.getTracks().forEach(track => track.stop());
+    };
   }, [cameraStream]);
 
   useEffect(() => {
@@ -220,7 +162,7 @@ function Report() {
     document.getElementById('file-input').click();
   };
 
-  // Auto-redirect after approval
+  // Auto-redirect countdown after approved
   useEffect(() => {
     let timer;
     if (showModal && modalStatus === 'approved') {
@@ -238,44 +180,36 @@ function Report() {
     e.preventDefault();
     if (!image || !hazardType) return;
 
-    // If photo from camera and GPS not ready yet, block and inform
-    if (imageSource === 'camera' && gpsStatus !== 'success') {
-      if (gpsStatus === 'fetching') {
-        setInlineAlert({ type: 'location', title: 'Acquiring Location', message: 'Still getting your location. Please wait a moment and try again.' });
-      } else {
-        setInlineAlert({ type: 'location', title: 'Location Required for Camera Photos', message: 'Please enable location access so we can tag where this hazard was captured.' });
-        fetchBrowserGPS();
-      }
-      return;
-    }
-
     setIsProcessing(true);
     setInlineAlert(null);
 
+    // STEP 1: GEMINI VISUAL
     setCurrentStep(1);
     await new Promise(r => setTimeout(r, 1200));
     setActivityLog(prev => ({ ...prev, gemini: 'pass' }));
+
+    // STEP 2: FILE VALIDATION
     setCurrentStep(2);
     await new Promise(r => setTimeout(r, 800));
     setActivityLog(prev => ({ ...prev, fileValidation: 'pass' }));
+
+    // STEP 3: SPAM/DUP
     setCurrentStep(3);
     await new Promise(r => setTimeout(r, 1000));
     setActivityLog(prev => ({ ...prev, spamCheck: 'pass' }));
+
+    // STEP 4: KEYWORDS
     setCurrentStep(4);
     await new Promise(r => setTimeout(r, 1000));
     setActivityLog(prev => ({ ...prev, keywordCheck: 'pass' }));
+
+    // STEP 5: DB COMMIT
     setCurrentStep(5);
 
     try {
       const formData = new FormData();
       formData.append('image', image);
       formData.append('complaint_description', hazardType);
-
-      // Only send GPS for in-app camera photos
-      if (imageSource === 'camera' && browserGPS) {
-        formData.append('gps_latitude', browserGPS.lat);
-        formData.append('gps_longitude', browserGPS.long);
-      }
 
       const res = await api.post('/hazards', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -293,29 +227,35 @@ function Report() {
       const responseData = err.response?.data;
       const errorCode = responseData?.error_code;
 
-      if (errorCode === 'NO_EXIF_GPS') {
-        setActivityLog(prev => ({ ...prev, gemini: 'fail', fileValidation: null, spamCheck: null, keywordCheck: null, finalStatus: null }));
-        setCurrentStep(0);
-        setIsProcessing(false);
-        setInlineAlert({
-          type: 'location',
-          title: 'Location Not Found',
-          message: imageSource === 'gallery'
-            ? 'Gallery images must have GPS metadata. Please use the in-app camera to capture a photo with your current location.'
-            : 'Could not determine your location. Please enable location permissions and try again.',
-        });
-        return;
-      }
+      // // ── NO EXIF GPS: show inline banner, keep form interactive ──────────
+      // if (errorCode === 'NO_EXIF_GPS') {
+      //   setActivityLog(prev => ({ ...prev, gemini: 'fail', fileValidation: null, spamCheck: null, keywordCheck: null, finalStatus: null }));
+      //   setCurrentStep(0);
+      //   setIsProcessing(false);
+      //   setInlineAlert({
+      //     type: 'location',
+      //     title: 'Location Not Found',
+      //     message:
+      //       'Your image does not contain GPS metadata. Please enable location services in your camera app, retake the photo, and try again. Without location data, the report cannot be filed.',
+      //   });
+      //   return; // Exit early — don't show modal
+      // }
 
+      // ── LOW IMPACT SCORE: show rejection modal with score details ────────
       if (errorCode === 'LOW_IMPACT_SCORE') {
         setActivityLog(prev => ({ ...prev, finalStatus: 'fail' }));
         await new Promise(r => setTimeout(r, 1200));
-        setRejectionDetail({ finalScore: responseData.final_score, flags: responseData.flags || [], trustLevel: responseData.trust_level });
+        setRejectionDetail({
+          finalScore: responseData.final_score,
+          flags: responseData.flags || [],
+          trustLevel: responseData.trust_level,
+        });
         setModalStatus('low_impact');
         setShowModal(true);
         return;
       }
 
+      // ── Generic failure ──────────────────────────────────────────────────
       setActivityLog(prev => ({ ...prev, finalStatus: 'fail' }));
       await new Promise(r => setTimeout(r, 1800));
       setModalStatus('rejected');
@@ -330,85 +270,31 @@ function Report() {
   return (
     <div className="relative min-h-screen bg-[#0A0A0A] font-['Space_Grotesk'] overflow-hidden">
 
-      {/* ── Location Permission Prompt Modal ── */}
-      {showLocationPrompt && (
-        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[300] p-6">
-          <div className="bg-[#131313] border border-[#FF8C00]/30 w-full max-w-sm p-8 shadow-[0_0_80px_rgba(255,140,0,0.15)] animate-in zoom-in duration-300">
-            <div className="flex flex-col items-center text-center gap-4 mb-8">
-              <div className="w-16 h-16 rounded-full bg-[#FF8C00]/10 flex items-center justify-center border border-[#FF8C00]/20">
-                <MapPin size={32} className="text-[#FF8C00]" />
-              </div>
-              <div>
-                <h2 className="text-2xl font-black uppercase italic tracking-tighter text-[#e5e2e1]">Location Access</h2>
-                <p className="text-[10px] font-bold text-[#FF8C00] uppercase tracking-[0.3em] mt-1">Required for Camera Reports</p>
-              </div>
-            </div>
-
-            <div className="bg-black/40 border border-[#564334]/30 p-4 mb-6 space-y-3">
-              <div className="flex items-start gap-3">
-                <Camera size={14} className="text-[#FF8C00] mt-0.5 shrink-0" />
-                <p className="text-[11px] text-[#a48c7a] leading-relaxed">When you take a photo using the in-app camera, your location is attached to verify where the hazard was reported.</p>
-              </div>
-              <div className="flex items-start gap-3">
-                <ShieldCheck size={14} className="text-[#00B894] mt-0.5 shrink-0" />
-                <p className="text-[11px] text-[#a48c7a] leading-relaxed">Gallery uploads don't require location — only live captures do.</p>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-3">
-              <button
-                onClick={handleAllowLocation}
-                className="w-full py-4 bg-[#FF8C00] text-black font-black uppercase tracking-[0.2em] hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2"
-              >
-                <MapPin size={16} /> Allow Location
-              </button>
-              <button
-                onClick={handleSkipLocation}
-                className="w-full py-3 border border-[#564334] text-[#a48c7a] font-black uppercase tracking-[0.2em] text-sm hover:bg-[#1c1b1b] transition-all"
-              >
-                Skip — Use Gallery Only
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* MAIN CONTENT LAYER */}
       <div className={`pt-12 pb-12 px-4 sm:px-6 lg:px-8 transition-all duration-700 ${showModal ? 'blur-2xl scale-[0.95] opacity-30' : ''}`}>
         <div className="fixed inset-0 pointer-events-none opacity-[0.03] bg-[url('https://www.transparenttextures.com/patterns/stardust.png')]"></div>
+
         <style>{`
           @keyframes scan { 0% { top: 0%; } 100% { top: 100%; } }
           .animate-scan-line { animation: scan 3s linear infinite; }
         `}</style>
 
         <div className="max-w-[1400px] mx-auto relative z-10">
+
+          {/* HEADER */}
           <div className="flex flex-col md:flex-row justify-between items-end mb-8 border-b border-[#564334]/20 pb-6 gap-6">
             <div>
               <h1 className="text-5xl font-black uppercase tracking-tighter italic leading-none text-[#e5e2e1]">Report Incident</h1>
               <p className="text-[10px] font-bold text-[#FF8C00] tracking-[0.4em] mt-2 uppercase">AI Will Autogenerate Your Report.</p>
             </div>
-            {/* GPS pill */}
-            <div className="flex items-center gap-2">
-              {gpsStatus === 'fetching' && (
-                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-[#FF8C00]">
-                  <Loader2 size={12} className="animate-spin" /> Acquiring Location...
-                </div>
-              )}
-              {gpsStatus === 'success' && (
-                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-[#00B894]">
-                  <MapPin size={12} /> Location Locked
-                </div>
-              )}
-              {(gpsStatus === 'error' || gpsStatus === 'denied') && (
-                <button onClick={fetchBrowserGPS} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-yellow-400 border border-yellow-400/30 px-3 py-1 hover:bg-yellow-400/10 transition-all">
-                  <MapPinOff size={12} /> Location Off — Retry
-                </button>
-              )}
-            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+
+            {/* LEFT: FORM */}
             <div className="lg:col-span-7 w-full space-y-6">
 
+              {/* ── Inline Location Alert ── */}
               {inlineAlert && (
                 <AlertBanner
                   type={inlineAlert.type}
@@ -418,19 +304,8 @@ function Report() {
                 />
               )}
 
-              {/* Image source badge */}
-              {imageSource && (
-                <div className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-widest px-3 py-2 border ${
-                  imageSource === 'camera'
-                    ? 'border-[#00B894]/30 bg-[#00B894]/5 text-[#00B894]'
-                    : 'border-[#564334]/30 bg-[#564334]/5 text-[#a48c7a]'
-                }`}>
-                  <Camera size={12} />
-                  {imageSource === 'camera' ? 'In-App Camera — Location will be attached' : 'Gallery Upload — No location data'}
-                </div>
-              )}
-
               <form onSubmit={handleSubmit} className="space-y-6">
+                {/* SCANNER VIEWPORT */}
                 <div className="relative bg-[#131313] border border-[#564334]/30 overflow-hidden shadow-2xl h-[350px]">
                   <div className="absolute top-4 left-4 z-20 text-[9px] font-black text-black bg-[#FF8C00] px-2 py-1 uppercase tracking-widest flex items-center gap-2">
                     <div className="w-1 h-1 bg-black animate-pulse" />
@@ -446,7 +321,7 @@ function Report() {
                         </div>
                       )}
                       {!isProcessing && (
-                        <button type="button" onClick={() => { setImageUrl(null); setImage(null); setImageSource(null); setInlineAlert(null); }}
+                        <button type="button" onClick={() => { setImageUrl(null); setInlineAlert(null); }}
                           className="absolute top-4 right-4 bg-black/60 hover:bg-[#FF8C00] text-white hover:text-black p-2 border border-white/10 transition-all z-20">
                           <X size={20} />
                         </button>
@@ -488,7 +363,7 @@ function Report() {
                     </div>
 
                     <button type="submit" disabled={!isFormValid}
-                      className={`relative w-full py-6 flex items-center justify-center gap-4 font-black uppercase tracking-[0.25em] text-xl italic transition-all duration-300 overflow-hidden ${
+                      className={`relative w-full py-6 flex items-center justify-center gap-4 font-black uppercase tracking-[0.25em] text-xl italic transition-all duration-300 group overflow-hidden ${
                         !isFormValid
                           ? 'bg-[#1c1b1b] text-[#564334] border-2 border-[#564334] cursor-not-allowed'
                           : 'bg-[#FF8C00] text-black border-2 border-[#FF8C00] hover:brightness-110 active:scale-[0.98]'
@@ -508,6 +383,7 @@ function Report() {
                   <Activity size={20} className="text-[#00eefc]" />
                   <h3 className="text-sm font-black uppercase tracking-[0.2em] text-[#e5e2e1]">Upload Activity Log</h3>
                 </div>
+
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
                     <span className={`text-sm font-black uppercase tracking-widest ${currentStep >= 1 ? 'text-[#e5e2e1]' : 'text-[#353534]'}`}>01 // Gemini_Visual_Layer</span>
@@ -516,20 +392,28 @@ function Report() {
                       : currentStep === 1 ? <Loader2 size={20} className="animate-spin text-[#FF8C00]" />
                       : <div className="w-3 h-3 rounded-full border-2 border-[#353534]" />}
                   </div>
+
                   <div className="space-y-6 pl-6 border-l-2 border-[#564334]/30 text-xs font-bold uppercase tracking-widest">
                     <div className="flex items-center justify-between">
                       <span className={currentStep >= 2 ? 'text-[#a48c7a]' : 'text-[#353534]'}>File Integrity Validation</span>
-                      {activityLog.fileValidation === 'pass' && <span className="text-[10px] font-black text-[#00B894] border border-[#00B894] px-2 py-0.5">PASS</span>}
+                      {activityLog.fileValidation === 'pass' && (
+                        <span className="text-[10px] font-black text-[#00B894] border border-[#00B894] px-2 py-0.5 shadow-[0_0_8px_rgba(0,184,148,0.2)]">PASS</span>
+                      )}
                     </div>
                     <div className="flex items-center justify-between">
                       <span className={currentStep >= 3 ? 'text-[#a48c7a]' : 'text-[#353534]'}>Spam/Duplication Check</span>
-                      {activityLog.spamCheck === 'pass' && <span className="text-[10px] font-black text-[#00B894] border border-[#00B894] px-2 py-0.5">CLEAR</span>}
+                      {activityLog.spamCheck === 'pass' && (
+                        <span className="text-[10px] font-black text-[#00B894] border border-[#00B894] px-2 py-0.5 shadow-[0_0_8px_rgba(0,184,148,0.2)]">CLEAR</span>
+                      )}
                     </div>
                     <div className="flex items-center justify-between">
                       <span className={currentStep >= 4 ? 'text-[#a48c7a]' : 'text-[#353534]'}>Gemini Keyword Filtration</span>
-                      {activityLog.keywordCheck === 'pass' && <span className="text-[10px] font-black text-[#00B894] border border-[#00B894] px-2 py-0.5">APPROVE</span>}
+                      {activityLog.keywordCheck === 'pass' && (
+                        <span className="text-[10px] font-black text-[#00B894] border border-[#00B894] px-2 py-0.5 shadow-[0_0_8px_rgba(0,184,148,0.2)]">APPROVE</span>
+                      )}
                     </div>
                   </div>
+
                   <div className="flex items-center justify-between pt-6 border-t border-[#564334]/30">
                     <span className={`text-sm font-black uppercase tracking-widest ${currentStep === 5 ? 'text-[#00eefc]' : 'text-[#353534]'}`}>Final Mesh Approval</span>
                     {activityLog.finalStatus === 'pass' ? <CheckCircle size={20} className="text-[#00eefc]" />
@@ -540,6 +424,7 @@ function Report() {
                 </div>
               </div>
 
+              {/* PROTOCOL BLOCK */}
               <div className="bg-[#e5e2e1] p-6 text-black border-r-[8px] border-black shadow-lg">
                 <div className="flex items-center gap-3 mb-4">
                   <Info size={16} />
@@ -548,11 +433,11 @@ function Report() {
                 <ul className="space-y-4">
                   <li className="flex gap-4 items-start border-b border-black/10 pb-3">
                     <span className="text-[10px] font-black opacity-30 italic">01</span>
-                    <p className="text-[10px] font-bold uppercase italic text-black/80">Use in-app camera for live hazard capture — location auto-tagged.</p>
+                    <p className="text-[10px] font-bold uppercase italic text-black/80">Upload clear visual evidence for AI analysis.</p>
                   </li>
                   <li className="flex gap-4 items-start border-b border-black/10 pb-3">
                     <span className="text-[10px] font-black opacity-30 italic">02</span>
-                    <p className="text-[10px] font-bold uppercase italic text-black/80">Gallery uploads accepted if the photo has embedded GPS metadata.</p>
+                    <p className="text-[10px] font-bold uppercase italic text-black/80">Photo must be taken with location services enabled.</p>
                   </li>
                   <li className="flex gap-4 items-start">
                     <span className="text-[10px] font-black opacity-30 italic">03</span>
@@ -565,17 +450,15 @@ function Report() {
         </div>
       </div>
 
-      {/* Capture Options Modal */}
+      {/* ── Capture Options Modal ── */}
       {showCaptureOptions && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
           <div className="bg-[#131313] border border-[#564334]/30 p-8 rounded-lg shadow-2xl max-w-md w-full mx-4">
-            <h3 className="text-xl font-black uppercase tracking-widest text-[#e5e2e1] mb-2 text-center">Choose Capture Method</h3>
-            <p className="text-[10px] text-[#564334] font-bold uppercase tracking-widest text-center mb-6">Camera attaches location · Gallery does not</p>
+            <h3 className="text-xl font-black uppercase tracking-widest text-[#e5e2e1] mb-6 text-center">Choose Capture Method</h3>
             <div className="space-y-4">
               <button onClick={handleCameraCapture}
                 className="w-full py-4 bg-[#FF8C00] text-black font-black uppercase tracking-widest text-lg hover:brightness-110 transition-all flex items-center justify-center gap-3">
                 <Camera size={24} /> Take Photo
-                {gpsStatus === 'success' && <span className="text-[10px] bg-black/20 px-2 py-0.5 rounded">+ GPS</span>}
               </button>
               <button onClick={handleFileUpload}
                 className="w-full py-4 bg-[#564334] text-[#e5e2e1] font-black uppercase tracking-widest text-lg hover:bg-[#6b5a4a] transition-all flex items-center justify-center gap-3">
@@ -590,7 +473,7 @@ function Report() {
         </div>
       )}
 
-      {/* Camera Modal */}
+      {/* ── Camera Modal ── */}
       {showCamera && (
         <div className="fixed inset-0 bg-black flex items-center justify-center z-50">
           <div className="relative max-w-2xl w-full mx-4">
@@ -598,11 +481,6 @@ function Report() {
               <div className="relative">
                 <video id="camera-video" autoPlay playsInline muted className="w-full h-auto max-h-[70vh] object-cover" />
                 <canvas id="camera-canvas" className="hidden" />
-                {gpsStatus === 'success' && (
-                  <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/70 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-[#00B894]">
-                    <MapPin size={10} /> GPS Active
-                  </div>
-                )}
                 <div className="absolute bottom-0 left-0 right-0 bg-black/60 p-4 flex justify-center gap-4">
                   <button onClick={handleTakePhoto}
                     className="px-6 py-3 bg-[#FF8C00] text-black font-black uppercase tracking-widest rounded-full hover:brightness-110 transition-all flex items-center gap-2">
@@ -624,9 +502,12 @@ function Report() {
         </div>
       )}
 
-      {/* RESULT MODALS */}
+      {/* ── RESULT MODALS ── */}
       {showModal && (
+
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-6">
+
+          {/* APPROVED */}
           {modalStatus === 'approved' && (
             <div className="bg-[#131313] border border-[#00B894]/40 w-full max-w-lg p-10 shadow-[0_0_100px_rgba(0,184,148,0.3)] animate-in zoom-in duration-300 relative">
               <div className="flex items-center gap-6 mb-8">
@@ -652,6 +533,7 @@ function Report() {
             </div>
           )}
 
+          {/* LOW IMPACT SCORE */}
           {modalStatus === 'low_impact' && (
             <div className="bg-[#131313] border border-yellow-600/40 w-full max-w-lg p-10 shadow-[0_0_80px_rgba(202,138,4,0.2)] animate-in zoom-in duration-300">
               <div className="flex items-center gap-6 mb-8">
@@ -663,9 +545,12 @@ function Report() {
                   <p className="text-[10px] font-bold text-yellow-400 uppercase tracking-[0.4em] mt-1">Impact Score Too Low</p>
                 </div>
               </div>
+
               <div className="bg-black/60 p-6 border border-yellow-600/20 mb-4">
                 <p className="text-[8px] font-black text-[#564334] uppercase tracking-[0.5em] mb-3">AI Verdict</p>
-                <p className="text-sm font-bold text-[#e5e2e1] leading-relaxed uppercase italic mb-4">"The hazard does not create enough impact to be logged."</p>
+                <p className="text-sm font-bold text-[#e5e2e1] leading-relaxed uppercase italic mb-4">
+                  "The hazard does not create enough impact to be logged in the system."
+                </p>
                 {rejectionDetail && (
                   <div className="space-y-2 pt-3 border-t border-yellow-600/20">
                     <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
@@ -687,9 +572,13 @@ function Report() {
                   </div>
                 )}
               </div>
-              <p className="text-[10px] text-[#a48c7a] mb-6 leading-relaxed">Try capturing a clearer image that directly shows the hazard.</p>
+
+              <p className="text-[10px] text-[#a48c7a] mb-6 leading-relaxed">
+                Try capturing a clearer image that directly shows the hazard, or report a more significant issue.
+              </p>
+
               <div className="flex gap-3">
-                <button onClick={() => { setShowModal(false); setModalStatus(null); setRejectionDetail(null); setImage(null); setImageUrl(null); setImageSource(null); setActivityLog({ gemini: null, fileValidation: null, spamCheck: null, keywordCheck: null, finalStatus: null }); setCurrentStep(0); }}
+                <button onClick={() => { setShowModal(false); setModalStatus(null); setRejectionDetail(null); setImage(null); setImageUrl(null); setActivityLog({ gemini: null, fileValidation: null, spamCheck: null, keywordCheck: null, finalStatus: null }); setCurrentStep(0); }}
                   className="flex-1 bg-[#FF8C00] text-black py-4 text-sm font-black uppercase tracking-[0.2em] hover:brightness-110 active:scale-95 transition-all">
                   Try Again
                 </button>
@@ -701,6 +590,7 @@ function Report() {
             </div>
           )}
 
+          {/* GENERIC REJECTED */}
           {modalStatus === 'rejected' && (
             <div className="bg-[#131313] border border-red-800/40 w-full max-w-lg p-10 shadow-[0_0_80px_rgba(239,68,68,0.15)] animate-in zoom-in duration-300">
               <div className="flex items-center gap-6 mb-8">
@@ -728,6 +618,7 @@ function Report() {
               </div>
             </div>
           )}
+
         </div>
       )}
     </div>
