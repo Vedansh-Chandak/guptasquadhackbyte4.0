@@ -52,8 +52,7 @@ const createHazard = async (req, res, next) => {
     console.log(`  📸 Image Size: ${(imageFile.size / 1024).toFixed(2)} KB`);
     console.log(`  ✅ IMAGE VALIDATION PASSED\n`);
 
-    // ═════════════════════════════════════════════════════════════════════
-    // STAGE 2: GPS EXTRACTION FROM EXIF
+    // STAGE 2: GPS DATA VALIDATION & EXTRACTION
     // ═════════════════════════════════════════════════════════════════════
     console.log("📍 STAGE 2: GPS DATA EXTRACTION");
     console.log("-".repeat(80));
@@ -63,6 +62,7 @@ const createHazard = async (req, res, next) => {
       long: parseFloat(gps_longitude) || null,
     };
 
+    // Attempt to extract GPS from Image EXIF
     const exifGPS = await extractGPSFromImage(imageFile.buffer);
     
     if (exifGPS.hasGPS) {
@@ -71,21 +71,31 @@ const createHazard = async (req, res, next) => {
       console.log(`  ✅ GPS found in EXIF metadata`);
       console.log(`  📍 Extracted Latitude: ${gpsData.lat}`);
       console.log(`  📍 Extracted Longitude: ${gpsData.long}\n`);
-    } else if (!gpsData.lat || !gpsData.long) {
-      console.error(
-        "❌ GPS VALIDATION FAILED: No GPS in EXIF and no manual GPS provided"
-      );
+    } else {
+      console.log(`  ⚠️  No GPS found in EXIF metadata.`);
+    }
+
+    // ─── THE BREAK POINT ───────────────────────────────────────────
+    // If after checking EXIF and the Request Body we still have no GPS
+    if (!gpsData.lat || !gpsData.long) {
+      console.error("❌ GPS VALIDATION FAILED: No location data found in EXIF or manual input.");
+      console.log("🛑 BREAKING PROCESS: Stopping execution before AI Analysis.");
+      
       return res.status(400).json({
         success: false,
-        message:
-          "Location data required. Image has no GPS metadata. Please enable location and try again.",
-        required_fields: ["gps_latitude", "gps_longitude"],
+        message: "Location data required. The uploaded image contains no GPS metadata and no manual coordinates were provided. Please enable location services and try again.",
+        error_code: "LOCATION_REQUIRED",
       });
-    } else {
-      console.log(`  ℹ️  Using manual GPS (no EXIF metadata found)`);
+    }
+    // ───────────────────────────────────────────────────────────────
+
+    // If we reach here, we have GPS (either from EXIF or manual input)
+    if (!exifGPS.hasGPS) {
+      console.log(`  ℹ️  Proceeding with manual GPS coordinates`);
       console.log(`  📍 Latitude: ${gpsData.lat}`);
       console.log(`  📍 Longitude: ${gpsData.long}\n`);
     }
+
 
     // ═════════════════════════════════════════════════════════════════════
     // STAGE 3: AI SERVICE ANALYSIS
