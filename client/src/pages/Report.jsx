@@ -227,19 +227,19 @@ function Report() {
       const responseData = err.response?.data;
       const errorCode = responseData?.error_code;
 
-      // // ── NO EXIF GPS: show inline banner, keep form interactive ──────────
-      // if (errorCode === 'NO_EXIF_GPS') {
-      //   setActivityLog(prev => ({ ...prev, gemini: 'fail', fileValidation: null, spamCheck: null, keywordCheck: null, finalStatus: null }));
-      //   setCurrentStep(0);
-      //   setIsProcessing(false);
-      //   setInlineAlert({
-      //     type: 'location',
-      //     title: 'Location Not Found',
-      //     message:
-      //       'Your image does not contain GPS metadata. Please enable location services in your camera app, retake the photo, and try again. Without location data, the report cannot be filed.',
-      //   });
-      //   return; // Exit early — don't show modal
-      // }
+      // ── NO EXIF GPS: show inline banner, keep form interactive ──────────
+      if (errorCode === 'NO_EXIF_GPS') {
+        setActivityLog(prev => ({ ...prev, gemini: 'fail', fileValidation: null, spamCheck: null, keywordCheck: null, finalStatus: null }));
+        setCurrentStep(0);
+        setIsProcessing(false);
+        setInlineAlert({
+          type: 'location',
+          title: 'Location Not Found',
+          message:
+            'Your image does not contain GPS metadata. Please enable location services in your camera app, retake the photo, and try again. Without location data, the report cannot be filed.',
+        });
+        return; // Exit early — don't show modal
+      }
 
       // ── LOW IMPACT SCORE: show rejection modal with score details ────────
       if (errorCode === 'LOW_IMPACT_SCORE') {
