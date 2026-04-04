@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+
 import { useAuth } from '../contexts/AuthContext';
 import { 
   Camera, Shield, AlertTriangle, CheckCircle, X, ChevronDown, 
@@ -50,6 +51,9 @@ function Report() {
   const [imageUrl, setImageUrl] = useState(null);
   const [hazardType, setHazardType] = useState('');
 
+  // ── FIX 1: Browser GPS state — populated on mount as fallback for images without EXIF ──
+  const [browserGPS, setBrowserGPS] = useState({ lat: null, long: null });
+
   // VERIFICATION FLOW STATES
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
@@ -81,6 +85,33 @@ function Report() {
       navigate('/login');
     }
   }, [isAuthenticated, navigate]);
+
+  // ── FIX 2: Fetch browser GPS as soon as Report page loads ──────────────────
+  // This runs once on mount. By the time the user picks an image and hits submit,
+  // browserGPS.lat / browserGPS.long will be ready to send as a fallback.
+  // navigator.geolocation requires HTTPS in production (works on localhost too).
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      console.warn('[Report] Geolocation API not available in this browser.');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setBrowserGPS({
+          lat: pos.coords.latitude,
+          long: pos.coords.longitude,
+        });
+        console.log(
+          `[Report] Browser GPS acquired: ${pos.coords.latitude}, ${pos.coords.longitude}`
+        );
+      },
+      (err) => {
+        console.warn('[Report] Browser GPS denied or unavailable:', err.message);
+        // Non-fatal — EXIF GPS from image will still work if present
+      },
+      { timeout: 10000, enableHighAccuracy: true }
+    );
+  }, []);
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
@@ -211,6 +242,15 @@ function Report() {
       formData.append('image', image);
       formData.append('complaint_description', hazardType);
 
+      // ── FIX 3: Send browser GPS as fallback for images without EXIF GPS ──
+      // The backend will use EXIF GPS first. If EXIF is missing (gallery photos,
+      // screenshots, WhatsApp images), it falls back to these browser coordinates.
+      if (browserGPS.lat !== null && browserGPS.long !== null) {
+        formData.append('gps_latitude', browserGPS.lat);
+        formData.append('gps_longitude', browserGPS.long);
+        console.log(`[Report] Attaching browser GPS fallback: ${browserGPS.lat}, ${browserGPS.long}`);
+      }
+
       const res = await api.post('/hazards', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
@@ -227,7 +267,7 @@ function Report() {
       const responseData = err.response?.data;
       const errorCode = responseData?.error_code;
 
-      // ── NO EXIF GPS: show inline banner, keep form interactive ──────────
+      // ── NO EXIF GPS and no browser GPS either: show inline banner ───────
       if (errorCode === 'NO_EXIF_GPS') {
         setActivityLog(prev => ({ ...prev, gemini: 'fail', fileValidation: null, spamCheck: null, keywordCheck: null, finalStatus: null }));
         setCurrentStep(0);
@@ -236,7 +276,7 @@ function Report() {
           type: 'location',
           title: 'Location Not Found',
           message:
-            'Your image does not contain GPS metadata. Please enable location services in your camera app, retake the photo, and try again. Without location data, the report cannot be filed.',
+            'Your image does not contain GPS metadata and location access was denied. Please enable location services in your browser and refresh the page, or retake the photo with location services enabled in your camera app.',
         });
         return; // Exit early — don't show modal
       }
@@ -437,7 +477,7 @@ function Report() {
                   </li>
                   <li className="flex gap-4 items-start border-b border-black/10 pb-3">
                     <span className="text-[10px] font-black opacity-30 italic">02</span>
-                    <p className="text-[10px] font-bold uppercase italic text-black/80">Photo must be taken with location services enabled.</p>
+                    <p className="text-[10px] font-bold uppercase italic text-black/80">Allow location access when prompted for accurate reporting.</p>
                   </li>
                   <li className="flex gap-4 items-start">
                     <span className="text-[10px] font-black opacity-30 italic">03</span>
