@@ -686,10 +686,74 @@ const resolveHazard = async (req, res, next) => {
   }
 };
 
+
+// ─── GET /hazards/nearby ──────────────────────────────────────────────────────
+// getNearbyHazards
+// Returns active hazards within `radius` metres of (lat, long)
+// Uses Haversine formula for accurate distance on a sphere
+const getNearbyHazards = async (req, res, next) => {
+  try {
+    const { lat, long, radius = 50 } = req.query; // radius in metres, default 50 m
+ 
+    if (!lat || !long) {
+      return res.status(400).json({
+        success: false,
+        message: 'lat and long query params are required.',
+      });
+    }
+ 
+    const userLat = parseFloat(lat);
+    const userLong = parseFloat(long);
+    const radiusMetres = parseFloat(radius);
+ 
+    if (isNaN(userLat) || isNaN(userLong) || isNaN(radiusMetres)) {
+      return res.status(400).json({ success: false, message: 'Invalid coordinates or radius.' });
+    }
+ 
+    // Bounding-box pre-filter (fast index scan) — 1 degree ≈ 111,320 m
+    const degreeBuffer = (radiusMetres / 111320) * 1.5; // 1.5× slack for the box
+    const hazards = await Hazard.find({
+      status: 'active',
+      lat:  { $gte: userLat  - degreeBuffer, $lte: userLat  + degreeBuffer },
+      long: { $gte: userLong - degreeBuffer, $lte: userLong + degreeBuffer },
+    })
+      .select('_id lat long type description trust_level final_score image_url priority_score')
+      .lean();
+ 
+    // Haversine exact-distance filter
+    const R = 6371000; // Earth radius in metres
+    const toRad = (d) => (d * Math.PI) / 180;
+ 
+    const nearby = hazards
+      .map((h) => {
+        const dLat = toRad(h.lat - userLat);
+        const dLon = toRad(h.long - userLong);
+        const a =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(toRad(userLat)) * Math.cos(toRad(h.lat)) * Math.sin(dLon / 2) ** 2;
+        const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return { ...h, distance_metres: Math.round(distance) };
+      })
+      .filter((h) => h.distance_metres <= radiusMetres)
+      .sort((a, b) => a.distance_metres - b.distance_metres);
+ 
+    return res.status(200).json({
+      success: true,
+      count: nearby.length,
+      radius_metres: radiusMetres,
+      user_location: { lat: userLat, long: userLong },
+      hazards: nearby,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createHazard,
   getHazards,
   getHazardById,
   toggleUpvote,
   resolveHazard,
+  getNearbyHazards,
 };

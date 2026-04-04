@@ -2,6 +2,7 @@ import React from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { GoogleOAuthProvider } from '@react-oauth/google'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { ProximityNotificationProvider } from './contexts/ProximityNotificationContext'
 import Home from './pages/Home'
 import Map from './pages/Map'
 import Feed from './pages/Feed'
@@ -32,32 +33,30 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] font-['Space_Grotesk'] text-white">
-      
-      {/* Header shows only when authenticated */}
-      {isAuthenticated && <Header />}
+    <ProximityNotificationProvider>
+      <div className="min-h-screen bg-[#0a0a0a] font-['Space_Grotesk'] text-white">
 
-      <main className={`${isAuthenticated ? 'pt-16 pb-20 md:pb-0' : ''}`}>
-        <Routes>
-          {/* Public pages */}
-          <Route path="/login" element={isAuthenticated ? <Navigate to="/feed" replace /> : <Login />} />
-          <Route path="/signup" element={isAuthenticated ? <Navigate to="/feed" replace /> : <SignUp />} />
+        {isAuthenticated && <Header />}
 
-          {/* Protected pages */}
-          <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
-          <Route path="/map" element={<ProtectedRoute><Map /></ProtectedRoute>} />
-          <Route path="/feed" element={<ProtectedRoute><Feed /></ProtectedRoute>} />
-          <Route path="/report" element={<ProtectedRoute><Report /></ProtectedRoute>} />
-          <Route path="/hazard/:id" element={<ProtectedRoute><HazardDetail /></ProtectedRoute>} />
+        <main className={`${isAuthenticated ? 'pt-16 pb-20 md:pb-0' : ''}`}>
+          <Routes>
+            <Route path="/login" element={isAuthenticated ? <Navigate to="/feed" replace /> : <Login />} />
+            <Route path="/signup" element={isAuthenticated ? <Navigate to="/feed" replace /> : <SignUp />} />
 
-          {/* Catch-all */}
-          <Route path="*" element={<Navigate to={isAuthenticated ? '/feed' : '/login'} replace />} />
-        </Routes>
-      </main>
+            <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+            <Route path="/map" element={<ProtectedRoute><Map /></ProtectedRoute>} />
+            <Route path="/feed" element={<ProtectedRoute><Feed /></ProtectedRoute>} />
+            <Route path="/report" element={<ProtectedRoute><Report /></ProtectedRoute>} />
+            <Route path="/hazard/:id" element={<ProtectedRoute><HazardDetail /></ProtectedRoute>} />
 
-      {isAuthenticated && <BottomBar />}
-      
-    </div>
+            <Route path="*" element={<Navigate to={isAuthenticated ? '/feed' : '/login'} replace />} />
+          </Routes>
+        </main>
+
+        {isAuthenticated && <BottomBar />}
+
+      </div>
+    </ProximityNotificationProvider>
   )
 }
 
