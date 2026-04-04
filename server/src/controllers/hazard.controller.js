@@ -52,19 +52,19 @@ const createHazard = async (req, res, next) => {
     console.log(`  📸 Image Size: ${(imageFile.size / 1024).toFixed(2)} KB`);
     console.log(`  ✅ IMAGE VALIDATION PASSED\n`);
 
-    // STAGE 2: GPS DATA VALIDATION & EXTRACTION
+    // ═════════════════════════════════════════════════════════════════════
+    // STAGE 2: GPS EXTRACTION FROM EXIF
     // ═════════════════════════════════════════════════════════════════════
     console.log("📍 STAGE 2: GPS DATA EXTRACTION");
     console.log("-".repeat(80));
 
     let gpsData = {
-      lat: parseFloat(gps_latitude) || null,
-      long: parseFloat(gps_longitude) || null,
+      lat: null,
+      long: null,
     };
 
-    // Attempt to extract GPS from Image EXIF
     const exifGPS = await extractGPSFromImage(imageFile.buffer);
-    
+
     if (exifGPS.hasGPS) {
       gpsData.lat = exifGPS.lat;
       gpsData.long = exifGPS.long;
@@ -72,30 +72,17 @@ const createHazard = async (req, res, next) => {
       console.log(`  📍 Extracted Latitude: ${gpsData.lat}`);
       console.log(`  📍 Extracted Longitude: ${gpsData.long}\n`);
     } else {
-      console.log(`  ⚠️  No GPS found in EXIF metadata.`);
-    }
-
-    // ─── THE BREAK POINT ───────────────────────────────────────────
-    // If after checking EXIF and the Request Body we still have no GPS
-    if (!gpsData.lat || !gpsData.long) {
-      console.error("❌ GPS VALIDATION FAILED: No location data found in EXIF or manual input.");
-      console.log("🛑 BREAKING PROCESS: Stopping execution before AI Analysis.");
-      
+      // ── NO EXIF GPS → Hard reject. Do NOT call AI. Do NOT save. ──────────
+      console.error(
+        "❌ GPS VALIDATION FAILED: Image has no EXIF GPS metadata. Aborting pipeline."
+      );
       return res.status(400).json({
         success: false,
-        message: "Location data required. The uploaded image contains no GPS metadata and no manual coordinates were provided. Please enable location services and try again.",
-        error_code: "LOCATION_REQUIRED",
+        error_code: "NO_EXIF_GPS",
+        message:
+          "Location metadata not found in image. Please enable location services on your camera and retake the photo.",
       });
     }
-    // ───────────────────────────────────────────────────────────────
-
-    // If we reach here, we have GPS (either from EXIF or manual input)
-    if (!exifGPS.hasGPS) {
-      console.log(`  ℹ️  Proceeding with manual GPS coordinates`);
-      console.log(`  📍 Latitude: ${gpsData.lat}`);
-      console.log(`  📍 Longitude: ${gpsData.long}\n`);
-    }
-
 
     // ═════════════════════════════════════════════════════════════════════
     // STAGE 3: AI SERVICE ANALYSIS
@@ -154,7 +141,23 @@ const createHazard = async (req, res, next) => {
 
       // Map external response to internal format
       aiAnalysis = mapAIResponseToHazard(externalAIResponse);
-      console.log(`\n  ✅ AI Response mapped to internal schema\n`);
+      console.log('\n  ✅ AI Response mapped to internal schema\n');
+
+      // ── Final Score Gate: reject low-impact reports before any DB write ──
+      const rawScore = parseFloat(externalAIResponse.final_score);
+      console.log('  🔍 FINAL SCORE GATE: score=' + rawScore + ' (threshold > 0.4)');
+      if (!isNaN(rawScore) && rawScore <= 0.4) {
+        console.warn('  ❌ SCORE TOO LOW (' + rawScore + ' ≤ 0.4) — Not saving to DB.');
+        return res.status(422).json({
+          success: false,
+          error_code: 'LOW_IMPACT_SCORE',
+          message: 'Your report does not show enough impact to be filed. The hazard may not be significant enough or the image may not clearly show the issue.',
+          final_score: rawScore,
+          trust_level: externalAIResponse.trust_level || 'LOW',
+          flags: externalAIResponse.flags || [],
+        });
+      }
+      console.log('  ✅ SCORE GATE PASSED (' + rawScore + ' > 0.4)\n');
     } catch (aiError) {
       console.error(`\n  ❌ AI ANALYSIS FAILED: ${aiError.message}`);
       console.warn(`  ⚠️  Using default/fallback values for safety`);
