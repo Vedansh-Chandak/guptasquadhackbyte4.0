@@ -71,12 +71,23 @@ Project's AI integration was done using multiple repositories during the hackath
 * 🔹 https://github.com/STORM-codess/gemini_service_comparsion
 
 ---
+🚀 Try It Out
+
+You can explore and test FeedFix using the links below:
+
+🌐 Live Web App: https://hackbyte4-0.vercel.app
+📱 Mobile App https://expo.dev/accounts/paawan17/projects/mobile/builds/83f57720-0b9e-4756-9d3b-1e21c538ef6b
+
+💡 For the best experience, try uploading a real road image and explore the live hazard map & alerts.
+
 
 ## 🏆 Hackathon
 
 Built during **HackByte 4.0**, with the goal of solving real-world civic infrastructure issues using AI-driven solutions.
 
 ---
+
+
 
 
 ## 📄 License
