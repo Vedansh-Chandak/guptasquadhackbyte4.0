@@ -6,6 +6,7 @@ const {
   createHazard,
   getHazards,
   getHazardById,
+  getNearbyHazards,
   toggleUpvote,
   resolveHazard,
 } = require("../controllers/hazard.controller");
@@ -79,6 +80,11 @@ router.post(
   validate,
   createHazard
 );
+
+
+// GET /hazards/nearby?lat=XX&long=YY&radius=50
+// Returns active hazards within radius metres of user (Haversine)
+router.get('/nearby', getNearbyHazards);
 
 // GET /hazards
 router.get("/", getHazardsValidation, validate, getHazards);
