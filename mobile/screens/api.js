@@ -1,4 +1,4 @@
-export const BASE_URL = 'http://192.168.220.50:3001';
+export const BASE_URL = 'https://deployment-4xwq.onrender.com/';
 
 export const authFetch = async (url, token, options = {}) => {
   const res = await fetch(`${BASE_URL}${url}`, {
